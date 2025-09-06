@@ -1,0 +1,74 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サーバレス演習サイト</title>
+<style>
+body{text-align:center;font-family:Arial,sans-serif}table{margin:auto;border-collapse:collapse}
+td,th{border:1px solid #ccc;padding:8px}input[type=text],input[type=date]{width:150px}button{margin:4px}
+</style></head><body>
+<h1>サーバレスアプリケーションへようこそ！</h1>
+<p style="max-width:640px;margin:auto;text-align:left">
+このページは学習用です。以下の <code>apiUrl</code> を、API Gateway の <strong>Invoke URL</strong>（<code>.../items</code> まで）に書き換えてから利用してください。
+</p>
+<form id="f"><input id="id" placeholder="ID (任意の文字列)" required>
+<input id="description" placeholder="説明" required><input type="date" id="date" required>
+<button>新規作成</button></form>
+<h2>登録済みアイテム</h2>
+<table id="t"><thead><tr><th>ID</th><th>説明</th><th>日付</th><th>操作</th></tr></thead><tbody></tbody></table>
+
+<script>
+// ←ここを書き換える：例) const apiUrl="https://abc123.execute-api.ap-northeast-1.amazonaws.com/items";
+const apiUrl="";
+const $=s=>document.querySelector(s);
+const R=(u,o={})=>fetch(u,{headers:{'Content-Type':'application/json'},...o}).then(async r=>{
+  const x=await r.text().catch(()=>"" ); if(!r.ok) throw new Error(x||r.statusText);
+  return r.status===204?null:(x?JSON.parse(x):null);
+});
+
+async function draw(){try{
+  const a=await R(apiUrl)||[], b=$("#t tbody");
+  b.innerHTML=a.map(i=>`<tr>
+    <td>${i.id}</td>
+    <td><input type="text" value="${(i.description??"").replace(/"/g,"&quot;")}" disabled></td>
+    <td><input type="date" value="${i.date??""}" disabled></td>
+    <td>
+      <button onclick="toggleEdit(this,'${i.id}')">編集</button>
+      <button onclick="d('${i.id}')">削除</button>
+    </td>
+  </tr>`).join("");
+}catch(e){alert("取得に失敗しました: "+e.message)}}
+
+async function create(id,description,date){
+  await R(apiUrl,{method:"POST",body:JSON.stringify({id,description,date})}); await draw();
+}
+
+window.toggleEdit = async (btn,id)=>{
+  const r=btn.closest("tr"),
+        desc=r.querySelector("input[type=text]"),
+        date=r.querySelector("input[type=date]");
+  if(btn.textContent==="編集"){
+    desc.disabled=false; date.disabled=false;
+    btn.textContent="保存"; desc.focus(); return;
+  }
+  try{
+    await R(`${apiUrl}/${encodeURIComponent(id)}`,{
+      method:"PUT",
+      body:JSON.stringify({description:desc.value, date:date.value})
+    });
+    await draw();
+  }catch(e){ alert("更新に失敗しました: "+e.message); }
+};
+
+window.d=async(id)=>{
+  if(!confirm("本当に削除しますか？"))return;
+  await R(`${apiUrl}/${encodeURIComponent(id)}`,{method:"DELETE"}); await draw();
+};
+
+$("#f").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const id=$("#id").value.trim(), description=$("#description").value.trim(), date=$("#date").value;
+  if(!id||!description||!date) return alert("id / 説明 / 日付 は必須です");
+  try{await create(id,description,date); e.target.reset();}
+  catch(err){alert("作成に失敗しました: "+err.message);}
+});
+
+window.onload=draw;
+</script>
+</body></html>
