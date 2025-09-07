@@ -1,74 +1,208 @@
-<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サーバレス演習サイト</title>
-<style>
-body{text-align:center;font-family:Arial,sans-serif}table{margin:auto;border-collapse:collapse}
-td,th{border:1px solid #ccc;padding:8px}input[type=text],input[type=date]{width:150px}button{margin:4px}
-</style></head><body>
-<h1>サーバレスアプリケーションへようこそ！</h1>
-<p style="max-width:640px;margin:auto;text-align:left">
-このページは学習用です。以下の <code>apiUrl</code> を、API Gateway の <strong>Invoke URL</strong>（<code>.../items</code> まで）に書き換えてから利用してください。
-</p>
-<form id="f"><input id="id" placeholder="ID (任意の文字列)" required>
-<input id="description" placeholder="説明" required><input type="date" id="date" required>
-<button>新規作成</button></form>
-<h2>登録済みアイテム</h2>
-<table id="t"><thead><tr><th>ID</th><th>説明</th><th>日付</th><th>操作</th></tr></thead><tbody></tbody></table>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>サーバレス演習サイト</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- ここに API を固定したい場合だけ設定（例: https://xxx.execute-api.ap-northeast-1.amazonaws.com/items またはベースURL） -->
+  <meta name="api-url" content="">
+  <style>
+    :root { --gap: 8px; --bd:#ccc; --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; }
+    body { text-align:center; font-family: var(--font); margin: 16px; }
+    main { max-width: 960px; margin: 0 auto; }
+    form { display:inline-flex; gap: var(--gap); flex-wrap: wrap; align-items: center; margin: 12px 0 16px; }
+    table { margin:auto; border-collapse: collapse; width: min(100%, 860px); }
+    td, th { border: 1px solid var(--bd); padding: 8px; }
+    th { background: #fafafa; }
+    input[type="text"], input[type="date"] { width: 180px; }
+    button { margin: 0 2px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>サーバレスアプリケーションへようこそ！</h1>
 
-<script>
-// ←ここを書き換える：例) const apiUrl="https://abc123.execute-api.ap-northeast-1.amazonaws.com/items";
-const apiUrl="";
-const $=s=>document.querySelector(s);
-const R=(u,o={})=>fetch(u,{headers:{'Content-Type':'application/json'},...o}).then(async r=>{
-  const x=await r.text().catch(()=>"" ); if(!r.ok) throw new Error(x||r.statusText);
-  return r.status===204?null:(x?JSON.parse(x):null);
-});
+    <p id="apiInfo" aria-live="polite" style="margin:6px 0 0; font-size: 0.9rem;"></p>
 
-async function draw(){try{
-  const a=await R(apiUrl)||[], b=$("#t tbody");
-  b.innerHTML=a.map(i=>`<tr>
-    <td>${i.id}</td>
-    <td><input type="text" value="${(i.description??"").replace(/"/g,"&quot;")}" disabled></td>
-    <td><input type="date" value="${i.date??""}" disabled></td>
-    <td>
-      <button onclick="toggleEdit(this,'${i.id}')">編集</button>
-      <button onclick="d('${i.id}')">削除</button>
-    </td>
-  </tr>`).join("");
-}catch(e){alert("取得に失敗しました: "+e.message)}}
+    <form id="form" autocomplete="off" aria-describedby="apiInfo">
+      <label class="sr-only" for="id">ID</label>
+      <input id="id" name="id" placeholder="ID (任意の文字列)" required>
+      <label class="sr-only" for="description">説明</label>
+      <input id="description" name="description" placeholder="説明" required>
+      <label class="sr-only" for="date">日付</label>
+      <input id="date" name="date" type="date" required>
+      <button type="submit">新規作成</button>
+    </form>
 
-async function create(id,description,date){
-  await R(apiUrl,{method:"POST",body:JSON.stringify({id,description,date})}); await draw();
-}
+    <h2>登録済みアイテム</h2>
+    <table id="table" aria-describedby="apiInfo">
+      <thead>
+        <tr>
+          <th scope="col">ID</th>
+          <th scope="col">説明</th>
+          <th scope="col">日付</th>
+          <th scope="col">操作</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
 
-window.toggleEdit = async (btn,id)=>{
-  const r=btn.closest("tr"),
-        desc=r.querySelector("input[type=text]"),
-        date=r.querySelector("input[type=date]");
-  if(btn.textContent==="編集"){
-    desc.disabled=false; date.disabled=false;
-    btn.textContent="保存"; desc.focus(); return;
-  }
-  try{
-    await R(`${apiUrl}/${encodeURIComponent(id)}`,{
-      method:"PUT",
-      body:JSON.stringify({description:desc.value, date:date.value})
+  <script>
+  (function(){
+    "use strict";
+
+    // --- API URL 解析（?api= または <meta name="api-url"> のいずれか） ---
+    function normalizeItemsUrl(u) {
+      if (!u) return "";
+      u = u.replace(/\/+$/, "");
+      return /\/items$/.test(u) ? u : (u + "/items");
+    }
+    function resolveApiUrl() {
+      const u = new URL(location.href);
+      const fromQuery = u.searchParams.get("api");
+      if (fromQuery) return normalizeItemsUrl(fromQuery);
+      const meta = document.querySelector('meta[name="api-url"]')?.content?.trim();
+      if (meta) return normalizeItemsUrl(meta);
+      return "";
+    }
+    const apiUrl = resolveApiUrl();
+    const apiInfo = document.getElementById("apiInfo");
+    apiInfo.textContent = apiUrl
+      ? `APIエンドポイント: ${apiUrl}`
+      : "APIエンドポイント未設定です。URLに ?api=<Invoke URL> を付けるか、<meta name=\"api-url\"> に設定してください。";
+
+    // --- fetch ラッパ（10sタイムアウト、204/空レス対応、詳細エラー） ---
+    async function request(url, options = {}) {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          ...options, signal: controller.signal
+        });
+        const text = await res.text().catch(()=>"");
+        if (!res.ok) throw new Error(text || `${res.status} ${res.statusText}`);
+        return res.status === 204 ? null : (text ? JSON.parse(text) : null);
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    const $ = (sel, el=document) => el.querySelector(sel);
+    const tbody = $("#table tbody");
+    const form = $("#form");
+
+    // --- 描画（DOM APIで安全に構築） ---
+    async function draw() {
+      if (!apiUrl) return;
+      try {
+        const items = await request(apiUrl) || [];
+        tbody.innerHTML = "";
+        for (const item of items) {
+          const tr = document.createElement("tr");
+
+          const tdId = document.createElement("td");
+          tdId.textContent = item.id;
+
+          const tdDesc = document.createElement("td");
+          const inpDesc = document.createElement("input");
+          inpDesc.type = "text";
+          inpDesc.value = item.description ?? "";
+          inpDesc.disabled = true;
+          tdDesc.appendChild(inpDesc);
+
+          const tdDate = document.createElement("td");
+          const inpDate = document.createElement("input");
+          inpDate.type = "date";
+          inpDate.value = item.date ?? "";
+          inpDate.disabled = true;
+          tdDate.appendChild(inpDate);
+
+          const tdOps = document.createElement("td");
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.textContent = "編集";
+          btnEdit.dataset.id = item.id;
+
+          const btnDel = document.createElement("button");
+          btnDel.type = "button";
+          btnDel.textContent = "削除";
+          btnDel.dataset.id = item.id;
+
+          tdOps.append(btnEdit, btnDel);
+
+          tr.append(tdId, tdDesc, tdDate, tdOps);
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        alert("取得に失敗しました: " + e.message);
+      }
+    }
+
+    // --- 行操作（イベント委譲：編集↔保存／削除） ---
+    tbody.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+
+      const tr = btn.closest("tr");
+      const id = btn.dataset.id || tr?.firstElementChild?.textContent;
+      if (!id) return;
+
+      if (btn.textContent === "編集") {
+        tr.querySelectorAll("input").forEach(i => i.disabled = false);
+        btn.textContent = "保存";
+        tr.querySelector("input")?.focus();
+        return;
+      }
+
+      if (btn.textContent === "保存") {
+        const description = tr.querySelector('input[type="text"]').value;
+        const date = tr.querySelector('input[type="date"]').value;
+        try {
+          await request(`${apiUrl}/${encodeURIComponent(id)}`, {
+            method: "PUT",
+            body: JSON.stringify({ description, date })
+          });
+          await draw();
+        } catch (e) {
+          alert("更新に失敗しました: " + e.message);
+        }
+        return;
+      }
+
+      if (btn.textContent === "削除") {
+        if (!confirm("本当に削除しますか？")) return;
+        try {
+          await request(`${apiUrl}/${encodeURIComponent(id)}`, { method: "DELETE" });
+          await draw();
+        } catch (e) {
+          alert("削除に失敗しました: " + e.message);
+        }
+      }
     });
-    await draw();
-  }catch(e){ alert("更新に失敗しました: "+e.message); }
-};
 
-window.d=async(id)=>{
-  if(!confirm("本当に削除しますか？"))return;
-  await R(`${apiUrl}/${encodeURIComponent(id)}`,{method:"DELETE"}); await draw();
-};
+    // --- 新規作成 ---
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!apiUrl) return alert("APIエンドポイントを設定してください。");
+      const id = $("#id").value.trim();
+      const description = $("#description").value.trim();
+      const date = $("#date").value;
+      if (!id || !description || !date) return alert("id / 説明 / 日付 は必須です");
+      try {
+        await request(apiUrl, { method: "POST", body: JSON.stringify({ id, description, date }) });
+        form.reset();
+        await draw();
+      } catch (e2) {
+        alert("作成に失敗しました: " + e2.message);
+      }
+    });
 
-$("#f").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const id=$("#id").value.trim(), description=$("#description").value.trim(), date=$("#date").value;
-  if(!id||!description||!date) return alert("id / 説明 / 日付 は必須です");
-  try{await create(id,description,date); e.target.reset();}
-  catch(err){alert("作成に失敗しました: "+err.message);}
-});
-
-window.onload=draw;
-</script>
-</body></html>
+    // 初期ロード
+    window.addEventListener("DOMContentLoaded", draw);
+  })();
+  </script>
+</body>
+</html>
